@@ -14,8 +14,7 @@ void printMatrix(const IloArray<IloNumArray>& mat, int n, const char* name) {
     }
 }
 
-void readData(const char* filename, IloArray<IloNumArray>& d, IloArray<IloNumArray>& c, IloEnv& env) {
-    const int n = 32;
+void readData(const char* filename, IloArray<IloNumArray>& d, IloArray<IloNumArray>& c, IloEnv& env, int n) {
     std::ifstream file(filename);
     if (!file) {
         throw MyIloException("Cannot open data file");

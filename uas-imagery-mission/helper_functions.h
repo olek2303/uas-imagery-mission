@@ -9,5 +9,5 @@ class MyIloException : public IloException {
 public:
     MyIloException(const char* msg);
 };
-void readData(const char* filename, IloArray<IloNumArray>& d, IloArray<IloNumArray>& c, IloEnv& env);
+void readData(const char* filename, IloArray<IloNumArray>& d, IloArray<IloNumArray>& c, IloEnv& env, int n);
 void printMatrix(const IloArray<IloNumArray>& mat, int n, const char* name);

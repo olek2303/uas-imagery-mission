@@ -5,6 +5,6 @@ using namespace std;
 
 int main() {
 	cout << endl << "CPLEX SOLUTION: " << endl;
-	uas_imagery_mission();
+	main_cplex_integration_example();
 	return 0;
 }
