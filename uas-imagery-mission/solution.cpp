@@ -34,6 +34,13 @@ struct Saving {
     }
 };
 
+struct DirectedSaving {
+    int from_idx;
+    int to_idx;
+    double value;
+    bool operator<(const DirectedSaving& other) const { return value > other.value; }
+};
+
 double calculate_route_distance_from_matrix(
     const Route& route,
     int depot_idx,
@@ -53,23 +60,34 @@ double calculate_route_distance_from_matrix(
     return distance;
 }
 
+double calculate_route_distance_separate_depots(
+    const Route& route,
+    int start_depot_idx,
+    int end_depot_idx,
+    const std::vector<std::vector<double>>& dist_matrix) {
+    if (route.point_indices.empty()) return 0.0;
+    double distance = 0.0;
+    distance += dist_matrix[start_depot_idx][route.point_indices.front()];
+    for (size_t i = 0; i < route.point_indices.size() - 1; ++i) {
+        distance += dist_matrix[route.point_indices[i]][route.point_indices[i + 1]];
+    }
+    distance += dist_matrix[route.point_indices.back()][end_depot_idx];
+    return distance;
+}
 
-std::vector<Route> clarke_wright_savings_from_matrix(
-    int depot_idx,
+
+std::vector<Route> clarke_wright_separate_depots(
+    int start_depot_idx,
+    int end_depot_idx,
     const std::vector<CustomerNode>& customers,
     const std::vector<std::vector<double>>& dist_matrix,
     double vehicle_capacity) {
-
-    if (customers.empty()) {
-        return {};
-    }
-    
+    if (customers.empty()) return {};
     std::vector<Route> current_routes;
     for (const auto& customer : customers) {
         if (customer.demand > vehicle_capacity) {
-            std::cerr << "Warning: Customer ID " << customer.id << " (matrix index potentially different) demand ("
-                << customer.demand << ") exceeds vehicle capacity (" << vehicle_capacity
-                << "). Skipping." << std::endl;
+            std::cerr << "Ostrzeżenie: Zapotrzebowanie klienta " << customer.id << " (" << customer.demand
+                << ") przekracza pojemność pojazdu (" << vehicle_capacity << "). Pomijanie." << std::endl;
             continue;
         }
         Route initial_route;
@@ -77,106 +95,48 @@ std::vector<Route> clarke_wright_savings_from_matrix(
         initial_route.total_load = customer.demand;
         current_routes.push_back(initial_route);
     }
-    
-    std::vector<Saving> savings_list;
-    for (size_t i = 0; i < customers.size(); ++i) {
-        for (size_t j = i + 1; j < customers.size(); ++j) {
-            const CustomerNode& cust_node_i = customers[i];
-            const CustomerNode& cust_node_j = customers[j];
-            
-            int idx_i = cust_node_i.id;
-            int idx_j = cust_node_j.id;
-
-            if (idx_i == depot_idx || idx_j == depot_idx) continue;
-
-            double d_depot_i = dist_matrix[depot_idx][idx_i];
-            double d_depot_j = dist_matrix[depot_idx][idx_j];
-            double d_i_j = dist_matrix[idx_i][idx_j];
-
-            Saving s;
-            s.point1_idx = idx_i;
-            s.point2_idx = idx_j;
-            s.value = d_depot_i + d_depot_j - d_i_j;
-            if (s.value > 0) {
-                savings_list.push_back(s);
+    std::vector<DirectedSaving> savings_list;
+    for (const auto& cust_i : customers) {
+        for (const auto& cust_j : customers) {
+            if (cust_i.id == cust_j.id) continue;
+            int idx_i = cust_i.id;
+            int idx_j = cust_j.id;
+            double saving_value = dist_matrix[idx_i][end_depot_idx] +
+                dist_matrix[start_depot_idx][idx_j] -
+                dist_matrix[idx_i][idx_j];
+            if (saving_value > 0) {
+                savings_list.push_back({ idx_i, idx_j, saving_value });
             }
         }
     }
-    
     std::sort(savings_list.begin(), savings_list.end());
-    
     for (const auto& saving : savings_list) {
-        int p1_matrix_idx = saving.point1_idx;
-        int p2_matrix_idx = saving.point2_idx;
-
-        int route1_vec_idx = -1, route2_vec_idx = -1;
-        bool p1_is_front_in_r1 = false;
-        bool p2_is_front_in_r2 = false;
-        
+        int from_idx = saving.from_idx;
+        int to_idx = saving.to_idx;
+        int route1_vec_idx = -1;
+        int route2_vec_idx = -1;
         for (size_t i = 0; i < current_routes.size(); ++i) {
-            const auto& route = current_routes[i];
-            if (route.point_indices.empty()) continue;
-
-            if (route.point_indices.front() == p1_matrix_idx) {
-                route1_vec_idx = i;
-                p1_is_front_in_r1 = true;
-            }
-            else if (route.point_indices.back() == p1_matrix_idx) {
-                route1_vec_idx = i;
-                p1_is_front_in_r1 = false;
-            }
-
-            if (route.point_indices.front() == p2_matrix_idx) {
-                route2_vec_idx = i;
-                p2_is_front_in_r2 = true;
-            }
-            else if (route.point_indices.back() == p2_matrix_idx) {
-                route2_vec_idx = i;
-                p2_is_front_in_r2 = false;
-            }
+            if (current_routes[i].point_indices.empty()) continue;
+            if (current_routes[i].point_indices.back() == from_idx) route1_vec_idx = i;
+            if (current_routes[i].point_indices.front() == to_idx) route2_vec_idx = i;
         }
-
         if (route1_vec_idx != -1 && route2_vec_idx != -1 && route1_vec_idx != route2_vec_idx) {
             Route& r1 = current_routes[route1_vec_idx];
             Route& r2 = current_routes[route2_vec_idx];
-            
             if (r1.total_load + r2.total_load <= vehicle_capacity) {
-                Route merged_route;
-                merged_route.total_load = r1.total_load + r2.total_load;
-                
-                if (!p1_is_front_in_r1 && p2_is_front_in_r2) {
-                    merged_route.point_indices = r1.point_indices;
-                    merged_route.point_indices.insert(merged_route.point_indices.end(), r2.point_indices.begin(), r2.point_indices.end());
-                }
-                else if (!p2_is_front_in_r2 && p1_is_front_in_r1) {
-                    merged_route.point_indices = r2.point_indices;
-                    merged_route.point_indices.insert(merged_route.point_indices.end(), r1.point_indices.begin(), r1.point_indices.end());
-                }
-                else if (p1_is_front_in_r1 && p2_is_front_in_r2) {
-                    std::reverse(r1.point_indices.begin(), r1.point_indices.end());
-                    merged_route.point_indices = r1.point_indices;
-                    merged_route.point_indices.insert(merged_route.point_indices.end(), r2.point_indices.begin(), r2.point_indices.end());
-                }
-                else if (!p1_is_front_in_r1 && !p2_is_front_in_r2) {
-                    merged_route.point_indices = r1.point_indices;
-                    std::reverse(r2.point_indices.begin(), r2.point_indices.end());
-                    merged_route.point_indices.insert(merged_route.point_indices.end(), r2.point_indices.begin(), r2.point_indices.end());
-                }
-                else { continue; }
-
-
-                current_routes[route1_vec_idx] = merged_route;
-                current_routes[route2_vec_idx].point_indices.clear();
-                current_routes[route2_vec_idx].total_load = 0;
+                r1.point_indices.insert(r1.point_indices.end(), r2.point_indices.begin(), r2.point_indices.end());
+                r1.total_load += r2.total_load;
+                r2.point_indices.clear();
+                r2.total_load = 0;
             }
         }
     }
-    
     std::vector<Route> final_routes;
     for (const auto& route : current_routes) {
         if (!route.point_indices.empty()) {
             Route final_route_obj = route;
-            final_route_obj.total_distance = calculate_route_distance_from_matrix(route, depot_idx, dist_matrix);
+            final_route_obj.total_distance = calculate_route_distance_separate_depots(
+                route, start_depot_idx, end_depot_idx, dist_matrix);
             final_routes.push_back(final_route_obj);
         }
     }
@@ -187,70 +147,66 @@ int main_cplex_integration_example() {
     IloEnv env;
     try {
         const int num_total_points_in_matrix = 34;
-        const int depot_matrix_idx = 0;
+        const int start_depot_idx = 0;
+        const int end_depot_idx = 33;
         const int num_waypoints = 32;
+        const char* filename = "uas-cpp-data.dat";
+        const double vehicle_capacity = 90.0;
 
         IloArray<IloNumArray> d_ilo;
         IloArray<IloNumArray> c_ilo;
+        readData(filename, d_ilo, c_ilo, env, num_total_points_in_matrix);
+        std::cout << "Wczytano macierz odleglosci z pliku: " << filename << std::endl;
 
-        readData("uas-cpp-data.dat", d_ilo, c_ilo, env, num_total_points_in_matrix);
-        
-        std::vector<std::vector<double>> dist_matrix_std(
-            num_total_points_in_matrix,
-            std::vector<double>(num_total_points_in_matrix)
-        );
+        std::vector<std::vector<double>> dist_matrix_std(num_total_points_in_matrix, std::vector<double>(num_total_points_in_matrix));
         for (int i = 0; i < num_total_points_in_matrix; ++i) {
             for (int j = 0; j < num_total_points_in_matrix; ++j) {
                 dist_matrix_std[i][j] = d_ilo[i][j];
             }
         }
         
-        std::vector<CustomerNode> customers_list_std;
+        std::vector<CustomerNode> customers_list;
         for (int i = 1; i <= num_waypoints; ++i) {
-            customers_list_std.push_back({ i, 1.0 });
+            customers_list.push_back({ i, 1.0 });
         }
 
-        double vehicle_capacity_cpp = 10.0;
+        std::cout << "\nUruchamianie algorytmu oszczednosci dla osobnego startu i mety..." << std::endl;
+        std::cout << "------------------------------------------------------------------" << std::endl;
+        std::cout << "Indeks Startu: " << start_depot_idx << ", Indeks Mety: " << end_depot_idx << std::endl;
+        std::cout << "Liczba Waypointow: " << num_waypoints << " (indeksy 1.." << num_waypoints << ")" << std::endl;
+        std::cout << "Pojemnosc Pojazdu: " << vehicle_capacity << std::endl << std::endl;
 
-        std::cout << "Clarke & Wright Savings Algorithm (from Matrix) for Initial Route Generation" << std::endl;
-        std::cout << "----------------------------------------------------------------------------" << std::endl;
-        std::cout << "Depot Matrix Index: " << depot_matrix_idx << std::endl;
-        std::cout << "Number of Waypoints: " << customers_list_std.size() << std::endl;
-        std::cout << "Vehicle Capacity: " << vehicle_capacity_cpp << std::endl << std::endl;
-
-        std::vector<Route> initial_routes = clarke_wright_savings_from_matrix(
-            depot_matrix_idx,
-            customers_list_std,
+        std::vector<Route> initial_routes = clarke_wright_separate_depots(
+            start_depot_idx,
+            end_depot_idx,
+            customers_list,
             dist_matrix_std,
-            vehicle_capacity_cpp
+            vehicle_capacity
         );
 
-        std::cout << "Generated Initial Routes:" << std::endl;
-        double total_dist_all_routes = 0;
+        std::cout << "Wygenerowane Trasy Poczatkowe:" << std::endl;
+        double total_distance_all_routes = 0;
         for (size_t i = 0; i < initial_routes.size(); ++i) {
             const auto& route = initial_routes[i];
-            std::cout << "Route " << i + 1 << ": ";
-            std::cout << "Depot(" << depot_matrix_idx << ") -> ";
+            std::cout << "Trasa " << i + 1 << ": ";
+            std::cout << "Start(" << start_depot_idx << ") -> ";
             for (size_t j = 0; j < route.point_indices.size(); ++j) {
                 std::cout << route.point_indices[j] << (j == route.point_indices.size() - 1 ? "" : " -> ");
             }
-            std::cout << " -> Depot(" << depot_matrix_idx << ")";
-            std::cout << " (Load: " << route.total_load
-                << ", Distance: " << std::fixed << std::setprecision(2) << route.total_distance << ")" << std::endl;
-            total_dist_all_routes += route.total_distance;
+            std::cout << " -> Meta(" << end_depot_idx << ")";
+            std::cout << " (Ladunek: " << route.total_load
+                << ", Dystans: " << std::fixed << std::setprecision(2) << route.total_distance << ")" << std::endl;
+            total_distance_all_routes += route.total_distance;
         }
         if (!initial_routes.empty()) {
-            std::cout << std::endl << "Total distance for all initial routes: " << total_dist_all_routes << std::endl;
+            std::cout << std::endl << "Calkowity dystans dla wszystkich tras: " << total_distance_all_routes << std::endl;
         }
         else {
-            std::cout << "No routes generated." << std::endl;
+            std::cout << "Nie wygenerowano zadnych tras. Sprawdz pojemnosc pojazdu i zapotrzebowania." << std::endl;
         }
-
     }
     catch (const std::exception& e) {
-        std::cerr << "Standard exception caught: " << e.what() << std::endl;
-        env.end();
-        return 1;
+        std::cerr << "Wyjatek standardowy: " << e.what() << std::endl;
     }
     env.end();
     return 0;
