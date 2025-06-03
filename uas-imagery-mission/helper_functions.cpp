@@ -63,16 +63,6 @@ void readData(const char* filename, IloArray<IloNumArray>& d, IloArray<IloNumArr
         std::cout << std::endl;
     }
 
-    //for (int i = 0; i < n; i++) {
-    //    for (int j = 0; j < n; j++) {
-    //        float val;
-    //        if (!(file >> val)) {
-    //            throw MyIloException("Error reading value from file at position ()");
-    //        }
-    //        d[i][j] = val;
-    //    }
-    //}
-    
     for (int i = 0; i < n; i++) {
         for (int j = 0; j < n; j++) {
             c[i][j] = d[i][j];
