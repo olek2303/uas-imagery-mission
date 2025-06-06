@@ -11,6 +11,7 @@
 #include <stdexcept>
 #include <cmath>
 #include <random>
+#include <set>
 
 struct CustomerNode {
     int id;
@@ -88,11 +89,11 @@ std::vector<Route> clarke_wright_separate_depots(
             for (int pid : r2.point_indices) {
                 if (std::find(r1.point_indices.begin(), r1.point_indices.end(), pid) != r1.point_indices.end()) {
                     has_overlap = true;
-                    break;
+                    //break;
                 }
             }
 
-            if (!has_overlap) {
+            if (true) {
                 r1.point_indices.insert(
                     r1.point_indices.end(),
                     r2.point_indices.begin(),
@@ -113,9 +114,9 @@ std::vector<Route> clarke_wright_separate_depots(
         }
     }
 
-    if (final_routes.size() != 1 || final_routes[0].point_indices.size() != nodes.size()) {
+   /* if (final_routes.size() != 1 || final_routes[0].point_indices.size() != nodes.size()) {
         std::cerr << "Błąd: nie udało się znaleźć jednej pełnej trasy obejmującej wszystkie punkty.\n";
-    }
+    }*/
 
     return final_routes;
 }
@@ -154,11 +155,16 @@ std::vector<Route> generate_routes_with_variants(
         std::vector<Route> routes_variant = clarke_wright_separate_depots(
             start_depot_idx, end_depot_idx, nodes, dist_matrix, savings_variant);
 
-        if (!routes_variant.empty() && routes_variant.size() == 1 &&
-            routes_variant[0].point_indices.size() == nodes.size()) {
-
+        if (!routes_variant.empty()) {
             all_valid_routes.push_back(routes_variant[0]);
         }
+
+        std::sort(all_valid_routes.begin(), all_valid_routes.end(),
+            [](const Route& a, const Route& b) {
+                return a.point_indices.size() > b.point_indices.size();
+            });
+
+
 
         if ((int)all_valid_routes.size() >= num_variants)
             break;
@@ -171,8 +177,8 @@ std::vector<Route> generate_routes_with_variants(
 int main_cplex_integration_example() {
     IloEnv env;
     try {
-        const int num_total_points_in_matrix = 36;
-        const char* filename = "uas-cpp-data — kopia.dat";
+        const int num_total_points_in_matrix = 101;
+        const char* filename = "data05.dat";
    /*     const int num_total_points_in_matrix = 34;
         const char* filename = "uas-cpp-data.dat";*/
         const int start_depot_idx = 0;
@@ -205,7 +211,7 @@ int main_cplex_integration_example() {
     
 
         std::vector<Route> routes = generate_routes_with_variants(
-            start_depot_idx, end_depot_idx, nodes_list, dist_matrix_std, 3);
+            start_depot_idx, end_depot_idx, nodes_list, dist_matrix_std, 10);
 
         std::cout << "Wygenerowano " <<  routes.size() <<" trasy:" << std::endl;
       
